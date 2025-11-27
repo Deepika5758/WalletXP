@@ -1,0 +1,38 @@
+{
+  "name": "Lesson",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "cards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "xp_reward": {
+      "type": "number",
+      "default": 100
+    },
+    "category": {
+      "type": "string"
+    },
+    "order": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "title",
+    "cards",
+    "xp_reward"
+  ]
+}
