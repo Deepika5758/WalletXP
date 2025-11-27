@@ -1,308 +1,390 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
-import { motion } from 'framer-motion';
-import { Wallet, Lightbulb, PieChart, Target, Plus, List, ArrowLeft, IndianRupee, Camera } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from 'sonner';
+import { useAuth } from '@/components/auth/AuthContext';
+import { base44 } from '@/api/base44Client';
+import AddExpenseModal from '@/components/budget/AddExpenseModal';
+import { 
+  ArrowLeft, Plus, Wallet, TrendingUp, PieChart, 
+  Lightbulb, BarChart3, IndianRupee, X, Loader2
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-import IncomeExpenseForm from '@/components/budget/IncomeExpenseForm';
-import ExpenseInput from '@/components/budget/ExpenseInput';
-import ReceiptScanner from '@/components/budget/ReceiptScanner';
-import AIInsights from '@/components/budget/AIInsights';
-import BudgetPopups from '@/components/budget/BudgetPopups';
+const CATEGORIES = {
+  food: { label: '🍔 Food', color: 'bg-orange-500' },
+  transport: { label: '🚗 Transport', color: 'bg-blue-500' },
+  shopping: { label: '🛍️ Shopping', color: 'bg-pink-500' },
+  entertainment: { label: '🎬 Entertainment', color: 'bg-purple-500' },
+  utilities: { label: '💡 Utilities', color: 'bg-yellow-500' },
+  healthcare: { label: '🏥 Healthcare', color: 'bg-red-500' },
+  education: { label: '📚 Education', color: 'bg-indigo-500' },
+  rent: { label: '🏠 Rent', color: 'bg-gray-500' },
+  groceries: { label: '🛒 Groceries', color: 'bg-green-500' },
+  other: { label: '📦 Other', color: 'bg-slate-500' },
+};
 
 export default function Budget() {
-  const [user, setUser] = useState(null);
-  const [suggestedLimits, setSuggestedLimits] = useState({});
+  const { user, updateUser } = useAuth();
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showTips, setShowTips] = useState(false);
   const [showSpending, setShowSpending] = useState(false);
   const [showLimits, setShowLimits] = useState(false);
-  
-  const queryClient = useQueryClient();
-  const currentMonth = format(new Date(), 'yyyy-MM');
+  const [newIncome, setNewIncome] = useState('');
+  const [insights, setInsights] = useState(null);
+  const [loadingInsights, setLoadingInsights] = useState(false);
 
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const userData = await base44.auth.me();
-        setUser(userData);
-      } catch (err) {
-        console.error('Error loading user:', err);
-      }
-    };
-    loadUser();
-  }, []);
-
-  // Fetch budget
-  const { data: budget } = useQuery({
-    queryKey: ['budget', user?.email, currentMonth],
-    queryFn: async () => {
-      if (!user?.email) return null;
-      const results = await base44.entities.Budget.filter({ 
-        user_email: user.email, 
-        month: currentMonth 
-      });
-      return results[0];
-    },
-    enabled: !!user?.email
-  });
-
-  // Fetch expenses
-  const { data: expenses = [] } = useQuery({
-    queryKey: ['expenses', user?.email],
-    queryFn: async () => {
-      if (!user?.email) return [];
-      return await base44.entities.Expense.filter({ user_email: user.email }, '-date');
-    },
-    enabled: !!user?.email
-  });
-
-  // Save budget mutation
-  const saveBudgetMutation = useMutation({
-    mutationFn: async (budgetData) => {
-      if (budget?.id) {
-        return await base44.entities.Budget.update(budget.id, budgetData);
-      } else {
-        return await base44.entities.Budget.create({
-          ...budgetData,
-          user_email: user.email,
-          month: currentMonth
-        });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['budget']);
-      toast.success('Budget saved successfully!');
+    if (user) {
+      loadExpenses();
     }
-  });
+  }, [user]);
 
-  // Add expense mutation
-  const addExpenseMutation = useMutation({
-    mutationFn: async (expenseData) => {
-      return await base44.entities.Expense.create({
+  const loadExpenses = async () => {
+    try {
+      const data = await base44.entities.Expense.filter({ user_id: user.id }, '-date');
+      setExpenses(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddExpense = async (expenseData) => {
+    try {
+      await base44.entities.Expense.create({
         ...expenseData,
-        user_email: user.email
+        user_id: user.id
       });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['expenses']);
-      toast.success('Expense added!');
+      loadExpenses();
+    } catch (err) {
+      console.error(err);
     }
-  });
+  };
 
-  const monthlyExpenses = expenses.filter(e => e.date?.startsWith(currentMonth));
+  const handleUpdateIncome = async () => {
+    if (!newIncome) return;
+    await updateUser({ monthly_income: parseFloat(newIncome) });
+    setShowIncomeModal(false);
+    setNewIncome('');
+  };
 
-  // Pop-up boxes data
-  const popupBoxes = [
-    { 
-      icon: Lightbulb, 
-      title: 'Tips', 
-      color: 'from-yellow-400 to-amber-500',
-      onClick: () => setShowTips(true)
-    },
-    { 
-      icon: PieChart, 
-      title: 'Spending by Category', 
-      color: 'from-purple-500 to-indigo-600',
-      onClick: () => setShowSpending(true)
-    },
-    { 
-      icon: Target, 
-      title: 'Suggested Monthly Limits', 
-      color: 'from-blue-500 to-cyan-600',
-      onClick: () => setShowLimits(true)
-    },
-  ];
+  const getSpendingByCategory = () => {
+    const spending = {};
+    expenses.forEach(exp => {
+      spending[exp.category] = (spending[exp.category] || 0) + exp.amount;
+    });
+    return spending;
+  };
+
+  const getTotalSpent = () => {
+    return expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  };
+
+  const getAIInsights = async () => {
+    setLoadingInsights(true);
+    try {
+      const spendingData = getSpendingByCategory();
+      const result = await base44.integrations.Core.InvokeLLM({
+        prompt: `Analyze this spending data and provide financial advice in Indian Rupees (₹):
+        Monthly Income: ₹${user.monthly_income || 0}
+        Spending by category: ${JSON.stringify(spendingData)}
+        Total spent: ₹${getTotalSpent()}
+        
+        Provide:
+        1. Top 3 tips to save money
+        2. Suggested monthly limits for each category
+        3. Categories where spending is too high`,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            tips: { type: "array", items: { type: "string" } },
+            suggested_limits: { 
+              type: "object",
+              additionalProperties: { type: "number" }
+            },
+            high_spending_categories: { type: "array", items: { type: "string" } }
+          }
+        }
+      });
+      setInsights(result);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingInsights(false);
+    }
+  };
+
+  const spendingByCategory = getSpendingByCategory();
+  const totalSpent = getTotalSpent();
+
+  if (!user) {
+    window.location.href = createPageUrl('Login');
+    return null;
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-green-50 to-emerald-50">
-      <div className="max-w-6xl mx-auto p-6">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-blue-600 to-cyan-500 pt-6 pb-16 px-4">
+        <div className="max-w-lg mx-auto">
+          <div className="flex items-center gap-4 mb-6">
             <Link to={createPageUrl('Home')}>
-              <Button variant="ghost" size="icon" className="rounded-full hover:bg-green-100">
-                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
+                <ArrowLeft className="w-5 h-5" />
               </Button>
             </Link>
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2 flex items-center gap-3">
-                <Wallet className="w-8 h-8 text-green-600" />
-                Budget Dashboard
-              </h1>
-              <p className="text-gray-500">Track your income, expenses, and savings goals</p>
-            </div>
+            <h1 className="text-xl font-bold text-white">Budget Dashboard</h1>
           </div>
-        </motion.div>
-
-        {/* Pop-up Boxes */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8"
-        >
-          {popupBoxes.map((box, index) => (
-            <motion.div
-              key={box.title}
-              whileHover={{ scale: 1.03, y: -4 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={box.onClick}
-              className={`bg-gradient-to-br ${box.color} rounded-2xl p-6 text-white shadow-lg cursor-pointer`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm">
-                  <box.icon className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold">{box.title}</h3>
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
-
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Budget Setup */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <IncomeExpenseForm
-              budget={budget}
-              onSave={(data) => saveBudgetMutation.mutate(data)}
-              isLoading={saveBudgetMutation.isLoading}
-            />
-          </motion.div>
-
-          {/* Right Column - Add Expenses */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 }}
-            className="space-y-6"
-          >
-            <Tabs defaultValue="manual" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-4">
-                <TabsTrigger value="manual" className="flex items-center gap-2">
-                  <Plus className="w-4 h-4" /> Manual Entry
-                </TabsTrigger>
-                <TabsTrigger value="scan" className="flex items-center gap-2">
-                  <Camera className="w-4 h-4" /> Scan Receipt
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="manual">
-                <ExpenseInput
-                  onAddExpense={(data) => addExpenseMutation.mutate(data)}
-                  isLoading={addExpenseMutation.isLoading}
-                />
-              </TabsContent>
-              
-              <TabsContent value="scan">
-                <ReceiptScanner
-                  onExpenseScanned={(data) => addExpenseMutation.mutate(data)}
-                />
-              </TabsContent>
-            </Tabs>
-          </motion.div>
-        </div>
-
-        {/* AI Insights */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="mt-8"
-        >
-          <AIInsights
-            expenses={monthlyExpenses}
-            budget={budget}
-            onUpdateLimits={setSuggestedLimits}
-          />
-        </motion.div>
-
-        {/* Recent Expenses & Fixed Expenses */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="mt-8 bg-white rounded-2xl p-6 shadow-lg border border-gray-100"
-        >
-          <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <List className="w-5 h-5 text-purple-600" />
-            All Spending
-          </h3>
           
-          {/* Fixed Expenses Section */}
-          {budget?.fixed_expenses && budget.fixed_expenses.length > 0 && (
-            <div className="mb-6">
-              <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Fixed Monthly Expenses</h4>
-              <div className="space-y-3">
-                {budget.fixed_expenses.map((expense, index) => (
-                  <div key={`fixed-${index}`} className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <IndianRupee className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-800">{expense.name}</p>
-                        <p className="text-sm text-blue-600 capitalize">{expense.category} • Fixed</p>
-                      </div>
-                    </div>
-                    <span className="font-bold text-blue-700">-₹{expense.amount?.toLocaleString('en-IN')}</span>
-                  </div>
-                ))}
+          {/* Income Card */}
+          <div className="bg-white/20 backdrop-blur-sm rounded-2xl p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white/70 text-sm">Monthly Income</p>
+                <p className="text-3xl font-bold text-white">
+                  ₹{(user.monthly_income || 0).toLocaleString()}
+                </p>
+              </div>
+              <Button
+                onClick={() => setShowIncomeModal(true)}
+                variant="ghost"
+                className="text-white hover:bg-white/20 border border-white/30"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Update Income
+              </Button>
+            </div>
+            <div className="mt-4">
+              <div className="flex justify-between text-sm text-white/80 mb-2">
+                <span>Spent</span>
+                <span>₹{totalSpent.toLocaleString()} / ₹{(user.monthly_income || 0).toLocaleString()}</span>
+              </div>
+              <div className="h-2 bg-white/30 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-white rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (totalSpent / (user.monthly_income || 1)) * 100)}%` }}
+                />
               </div>
             </div>
-          )}
-
-          {/* Recent Variable Expenses */}
-          <div>
-            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Recent Variable Expenses</h4>
-            {monthlyExpenses.length > 0 ? (
-              <div className="space-y-3">
-                {monthlyExpenses.slice(0, 10).map((expense) => (
-                  <div key={expense.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                        <span className="capitalize text-sm font-medium text-purple-700">{expense.category?.[0]}</span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-800">{expense.description || expense.category}</p>
-                        <p className="text-sm text-gray-500">{expense.date}</p>
-                      </div>
-                    </div>
-                    <span className="font-bold text-red-600">-₹{expense.amount?.toLocaleString('en-IN')}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-400 text-center py-8">No expenses recorded yet</p>
-            )}
           </div>
-        </motion.div>
+        </div>
       </div>
 
-      {/* Popups */}
-      <BudgetPopups
-        showTips={showTips}
-        setShowTips={setShowTips}
-        showSpending={showSpending}
-        setShowSpending={setShowSpending}
-        showLimits={showLimits}
-        setShowLimits={setShowLimits}
-        expenses={monthlyExpenses}
-        suggestedLimits={suggestedLimits}
+      {/* Main Content */}
+      <div className="max-w-lg mx-auto px-4 -mt-8">
+        {/* Action Cards */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => { getAIInsights(); setShowTips(true); }}
+            className="bg-white rounded-xl p-4 shadow-lg flex flex-col items-center gap-2"
+          >
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+              <Lightbulb className="w-5 h-5 text-amber-600" />
+            </div>
+            <span className="text-xs font-medium text-gray-600">Tips</span>
+          </motion.button>
+          
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowSpending(true)}
+            className="bg-white rounded-xl p-4 shadow-lg flex flex-col items-center gap-2"
+          >
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+              <PieChart className="w-5 h-5 text-purple-600" />
+            </div>
+            <span className="text-xs font-medium text-gray-600">Spending</span>
+          </motion.button>
+          
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => { getAIInsights(); setShowLimits(true); }}
+            className="bg-white rounded-xl p-4 shadow-lg flex flex-col items-center gap-2"
+          >
+            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+              <BarChart3 className="w-5 h-5 text-green-600" />
+            </div>
+            <span className="text-xs font-medium text-gray-600">Limits</span>
+          </motion.button>
+        </div>
+
+        {/* Add Expense Button */}
+        <Button
+          onClick={() => setShowAddExpense(true)}
+          className="w-full h-14 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 rounded-xl mb-6"
+        >
+          <Plus className="w-5 h-5 mr-2" />
+          Add Expense
+        </Button>
+
+        {/* Recent Expenses */}
+        <div>
+          <h2 className="text-lg font-bold text-gray-800 mb-3">Recent Expenses</h2>
+          <div className="space-y-3">
+            {loading ? (
+              <div className="text-center py-8 text-gray-500">Loading...</div>
+            ) : expenses.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">No expenses yet</div>
+            ) : (
+              expenses.slice(0, 10).map((expense, index) => (
+                <motion.div
+                  key={expense.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  className="bg-white rounded-xl p-4 shadow-md flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 ${CATEGORIES[expense.category]?.color || 'bg-gray-500'} rounded-xl flex items-center justify-center text-white text-lg`}>
+                      {CATEGORIES[expense.category]?.label.split(' ')[0] || '📦'}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-800">{expense.description || expense.category}</p>
+                      <p className="text-xs text-gray-500">{expense.date}</p>
+                      {expense.is_fixed && (
+                        <span className="text-xs text-blue-600 font-medium">Fixed expense</span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="font-bold text-gray-800">₹{expense.amount.toLocaleString()}</p>
+                </motion.div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Modals */}
+      <AddExpenseModal
+        isOpen={showAddExpense}
+        onClose={() => setShowAddExpense(false)}
+        onSubmit={handleAddExpense}
       />
+
+      {/* Income Modal */}
+      <Dialog open={showIncomeModal} onOpenChange={setShowIncomeModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update Monthly Income</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Monthly Income (₹)</label>
+              <Input
+                type="number"
+                placeholder="50000"
+                value={newIncome}
+                onChange={(e) => setNewIncome(e.target.value)}
+                className="text-lg font-semibold"
+              />
+            </div>
+            <Button onClick={handleUpdateIncome} className="w-full">Update Income</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tips Modal */}
+      <Dialog open={showTips} onOpenChange={setShowTips}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lightbulb className="w-5 h-5 text-amber-500" />
+              AI Financial Tips
+            </DialogTitle>
+          </DialogHeader>
+          {loadingInsights ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+            </div>
+          ) : insights?.tips ? (
+            <div className="space-y-3">
+              {insights.tips.map((tip, index) => (
+                <div key={index} className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <p className="text-gray-700">{tip}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-4">Add some expenses first to get tips</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Spending Modal */}
+      <Dialog open={showSpending} onOpenChange={setShowSpending}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PieChart className="w-5 h-5 text-purple-500" />
+              Spending by Category
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {Object.entries(spendingByCategory).map(([category, amount]) => (
+              <div key={category} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 ${CATEGORIES[category]?.color || 'bg-gray-500'} rounded-lg flex items-center justify-center text-white`}>
+                    {CATEGORIES[category]?.label.split(' ')[0] || '📦'}
+                  </div>
+                  <span className="font-medium text-gray-700 capitalize">{category}</span>
+                </div>
+                <span className="font-bold text-gray-800">₹{amount.toLocaleString()}</span>
+              </div>
+            ))}
+            {Object.keys(spendingByCategory).length === 0 && (
+              <p className="text-gray-500 text-center py-4">No spending data yet</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Limits Modal */}
+      <Dialog open={showLimits} onOpenChange={setShowLimits}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-green-500" />
+              Suggested Monthly Limits
+            </DialogTitle>
+          </DialogHeader>
+          {loadingInsights ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+            </div>
+          ) : insights?.suggested_limits ? (
+            <div className="space-y-3">
+              {Object.entries(insights.suggested_limits).map(([category, limit]) => (
+                <div key={category} className="p-3 bg-gray-50 rounded-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-gray-700 capitalize">{category}</span>
+                    <span className="font-bold text-green-600">₹{limit.toLocaleString()}</span>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full ${
+                        (spendingByCategory[category] || 0) > limit ? 'bg-red-500' : 'bg-green-500'
+                      }`}
+                      style={{ width: `${Math.min(100, ((spendingByCategory[category] || 0) / limit) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Spent: ₹{(spendingByCategory[category] || 0).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-4">Add income and expenses first</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
