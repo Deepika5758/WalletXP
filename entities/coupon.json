@@ -1,0 +1,49 @@
+{
+  "name": "Coupon",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "discount": {
+      "type": "string"
+    },
+    "brand": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "xp_cost": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "available",
+        "redeemed",
+        "used",
+        "expired"
+      ],
+      "default": "available"
+    },
+    "redeemed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "title",
+    "brand",
+    "xp_cost"
+  ]
+}
