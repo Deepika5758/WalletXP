@@ -1,0 +1,44 @@
+{
+  "name": "Expense",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "food",
+        "transport",
+        "shopping",
+        "entertainment",
+        "utilities",
+        "healthcare",
+        "education",
+        "rent",
+        "groceries",
+        "other"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_fixed": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "user_id",
+    "amount",
+    "category",
+    "date"
+  ]
+}
